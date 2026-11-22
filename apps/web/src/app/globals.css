@@ -1,0 +1,90 @@
+@import "tailwindcss";
+@import "@statesync/design-tokens/tokens.css";
+
+/* Brand-only palette: drop Tailwind's default colours so every colour
+   in the product comes from the StateSync tokens. */
+@theme {
+  --color-*: initial;
+}
+
+@theme inline {
+  --color-canvas: var(--ss-canvas);
+  --color-surface: var(--ss-surface);
+  --color-raised: var(--ss-raised);
+  --color-strong: var(--ss-strong);
+  --color-ink: var(--ss-ink);
+  --color-muted: var(--ss-muted);
+  --color-on-strong: var(--ss-on-strong);
+  --color-muted-on-strong: var(--ss-muted-on-strong);
+  --color-accent: var(--ss-accent);
+  --color-on-accent: var(--ss-on-accent);
+  --color-accent-ink: var(--ss-accent-ink);
+  --color-primary: var(--ss-primary);
+  --color-primary-hover: var(--ss-primary-hover);
+  --color-on-primary: var(--ss-on-primary);
+  --color-line: var(--ss-line);
+  --color-line-strong: var(--ss-line-strong);
+  --color-focus: var(--ss-focus);
+  --color-decor: var(--ss-decor);
+  --color-success-bg: var(--ss-success-bg);
+  --color-success-fg: var(--ss-success-fg);
+  --color-success-icon: var(--ss-success-icon);
+  --color-warning-bg: var(--ss-warning-bg);
+  --color-warning-fg: var(--ss-warning-fg);
+  --color-warning-icon: var(--ss-warning-icon);
+  --color-error-bg: var(--ss-error-bg);
+  --color-error-fg: var(--ss-error-fg);
+  --color-error-icon: var(--ss-error-icon);
+  --color-info-bg: var(--ss-info-bg);
+  --color-info-fg: var(--ss-info-fg);
+  --color-info-icon: var(--ss-info-icon);
+
+  --font-display: var(--ss-font-display);
+  --font-sans: var(--ss-font-sans);
+  --font-mono: var(--ss-font-mono);
+  --radius-control: var(--ss-radius-control);
+  --radius-panel: var(--ss-radius-panel);
+}
+
+@layer base {
+  html {
+    background: var(--ss-canvas);
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--ss-canvas);
+    color: var(--ss-ink);
+    font-family: var(--ss-font-sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 {
+    font-family: var(--ss-font-display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+  :focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus);
+    outline-offset: var(--ss-focus-offset);
+  }
+  ::selection {
+    background: var(--ss-accent);
+    color: var(--ss-on-accent);
+  }
+  a { text-underline-offset: 3px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Windows High Contrast / forced colours: keep boundaries visible. */
+@media (forced-colors: active) {
+  .ss-forced-border { border: 1px solid CanvasText; }
+}

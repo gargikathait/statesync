@@ -1,0 +1,128 @@
+/* GENERATED FILE — do not edit.
+ * Source: packages/design-tokens/src/palette.ts
+ * Regenerate: npm run tokens:build   (CI fails if this file is stale)
+ *
+ * Theme selection:
+ *   <html data-theme="light"> or "dark" forces a theme.
+ *   No data-theme attribute follows the operating-system preference.
+ */
+
+:root {
+  --ss-brand-ivory: #F3F1EC;
+  --ss-brand-moss: #B6B8AB;
+  --ss-brand-smoke: #9FA3AD;
+  --ss-brand-garden: #E0DFD2;
+  --ss-brand-midnight: #3C3E4A;
+  --ss-radius-control: 6px;
+  --ss-radius-panel: 10px;
+  --ss-focus-width: 2px;
+  --ss-focus-offset: 2px;
+  --ss-font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --ss-font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ss-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --ss-canvas: #F3F1EC;
+  --ss-surface: #E0DFD2;
+  --ss-raised: #FBFAF7;
+  --ss-strong: #3C3E4A;
+  --ss-ink: #3C3E4A;
+  --ss-muted: #5A5C68;
+  --ss-on-strong: #F3F1EC;
+  --ss-muted-on-strong: #E0DFD2;
+  --ss-accent: #B6B8AB;
+  --ss-on-accent: #3C3E4A;
+  --ss-accent-ink: #565A47;
+  --ss-primary: #3C3E4A;
+  --ss-primary-hover: #2E303A;
+  --ss-on-primary: #F3F1EC;
+  --ss-line: #D2D1CF;
+  --ss-line-strong: #6A6D78;
+  --ss-focus: #3C3E4A;
+  --ss-decor: #9FA3AD;
+  --ss-success-bg: #DCE6D5;
+  --ss-success-fg: #2F5D3A;
+  --ss-success-icon: #3F7A4E;
+  --ss-warning-bg: #F0E3C3;
+  --ss-warning-fg: #6B4A0B;
+  --ss-warning-icon: #8A6212;
+  --ss-error-bg: #F0DAD4;
+  --ss-error-fg: #8A2E2E;
+  --ss-error-icon: #B03E3E;
+  --ss-info-bg: #D9E3EA;
+  --ss-info-fg: #2F4F6B;
+  --ss-info-icon: #3E6A8E;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ss-canvas: #25262E;
+  --ss-surface: #2F303A;
+  --ss-raised: #3C3E4A;
+  --ss-strong: #1C1D23;
+  --ss-ink: #F3F1EC;
+  --ss-muted: #BDBFC7;
+  --ss-on-strong: #F3F1EC;
+  --ss-muted-on-strong: #BDBFC7;
+  --ss-accent: #B6B8AB;
+  --ss-on-accent: #3C3E4A;
+  --ss-accent-ink: #B6B8AB;
+  --ss-primary: #B6B8AB;
+  --ss-primary-hover: #CBCDC0;
+  --ss-on-primary: #3C3E4A;
+  --ss-line: #474952;
+  --ss-line-strong: #9FA3AD;
+  --ss-focus: #B6B8AB;
+  --ss-decor: #9FA3AD;
+  --ss-success-bg: #2B3B2F;
+  --ss-success-fg: #BCDCC2;
+  --ss-success-icon: #7FBF8D;
+  --ss-warning-bg: #3F3624;
+  --ss-warning-fg: #EAD39A;
+  --ss-warning-icon: #D4A83F;
+  --ss-error-bg: #432A2B;
+  --ss-error-fg: #F0BDB6;
+  --ss-error-icon: #E27B73;
+  --ss-info-bg: #273746;
+  --ss-info-fg: #BCD3E6;
+  --ss-info-icon: #7FB0D6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: dark;
+    --ss-canvas: #25262E;
+    --ss-surface: #2F303A;
+    --ss-raised: #3C3E4A;
+    --ss-strong: #1C1D23;
+    --ss-ink: #F3F1EC;
+    --ss-muted: #BDBFC7;
+    --ss-on-strong: #F3F1EC;
+    --ss-muted-on-strong: #BDBFC7;
+    --ss-accent: #B6B8AB;
+    --ss-on-accent: #3C3E4A;
+    --ss-accent-ink: #B6B8AB;
+    --ss-primary: #B6B8AB;
+    --ss-primary-hover: #CBCDC0;
+    --ss-on-primary: #3C3E4A;
+    --ss-line: #474952;
+    --ss-line-strong: #9FA3AD;
+    --ss-focus: #B6B8AB;
+    --ss-decor: #9FA3AD;
+    --ss-success-bg: #2B3B2F;
+    --ss-success-fg: #BCDCC2;
+    --ss-success-icon: #7FBF8D;
+    --ss-warning-bg: #3F3624;
+    --ss-warning-fg: #EAD39A;
+    --ss-warning-icon: #D4A83F;
+    --ss-error-bg: #432A2B;
+    --ss-error-fg: #F0BDB6;
+    --ss-error-icon: #E27B73;
+    --ss-info-bg: #273746;
+    --ss-info-fg: #BCD3E6;
+    --ss-info-icon: #7FB0D6;
+  }
+}

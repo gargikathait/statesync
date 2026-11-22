@@ -1,0 +1,23 @@
+{
+  "name": "statesync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "StateSync — your browser remembers where you left off. SpectoV National Hackathon 2026, WD-01.",
+  "workspaces": [
+    "apps/web",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "npm run dev -w @statesync/web",
+    "build": "npm run build -w @statesync/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "tokens:build": "npm run tokens:build -w @statesync/design-tokens",
+    "tokens:check": "npm run tokens:check -w @statesync/design-tokens",
+    "tokens:report": "npm run tokens:report -w @statesync/design-tokens",
+    "check": "npm run tokens:check && npm run typecheck && npm run test && npm run build"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@statesync/design-tokens",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./tokens.css"
+  },
+  "scripts": {
+    "tokens:build": "tsx scripts/build-css.ts",
+    "tokens:check": "tsx scripts/build-css.ts --check",
+    "tokens:report": "tsx scripts/report.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}
