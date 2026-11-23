@@ -49,8 +49,8 @@ Key decision: the **extension never holds credentials and never talks to the API
 | Frontend | Next.js 16 (App Router), React 19, TypeScript 7, Tailwind CSS 4 | Implemented (M1 shell) |
 | Client state | Zustand (UI state), TanStack Query (server state) | Planned (M2) |
 | Offline | Dexie over IndexedDB, Service Worker, durable sync queue | Planned (M4) |
-| Backend | Python, FastAPI, Pydantic, SQLAlchemy, Alembic | Planned (M2) |
-| Database | PostgreSQL (Neon), JSONB snapshot payloads | Planned (M2) |
+| Backend | Python, FastAPI, Pydantic, SQLAlchemy 2 (sync, psycopg 3), Alembic | In progress (M2a, Step 2.1 done) |
+| Database | PostgreSQL 16 (Neon in production), JSONB snapshot payloads | Dev database and test harness in place (2.1); schema in 2.2 |
 | Extension | WebExtensions, MV3 (Chromium), Firefox manifest, shared adapters | Planned (M5) |
 | Tests | Vitest, React Testing Library, Pytest, Playwright | Vitest + RTL implemented; others planned |
 | Hosting | Vercel (web), Render (API), Neon (Postgres) | Planned (M7) |
@@ -61,7 +61,7 @@ Installed versions are in `package-lock.json`.
 
 ```
 apps/web                 Next.js app (implemented: shell, landing, /design)
-apps/api                 FastAPI service            (planned, README only)
+apps/api                 FastAPI service            (Step 2.1: app shell, config, health; models from 2.2)
 apps/extension           Browser extension          (planned, README only)
 packages/design-tokens   Brand tokens, themes, contrast maths  (implemented)
 packages/state-schema    Zod schemas for the 8 state categories (planned, M3)
@@ -187,6 +187,8 @@ Deployment decision: Vercel (web) and Render (API) are different sites, so cross
 Never captured: passwords, authentication tokens, payment credentials, sensitive private form values.
 
 ## 14. Data model (Planned M2 to M3)
+
+> **Amended by `docs/MILESTONE_2_PLAN.md` (decision D3).** The snapshot payload is the canonical store for all eight categories. Only `users`, `devices`, `auth_sessions`, `sessions`, `session_snapshots` (M2) and `action_checkpoints`, `conflicts`, `sync_operations` (M3 to M4) are tables. The separate `workflow_states`, `calculation_states`, `permission_requirements`, `session_windows` and `session_tabs` tables listed below are **not** built.
 
 `users`, `devices`, `browser_profiles`, `sessions`, `session_windows`, `session_tabs`, `session_snapshots`, `session_events`, `sync_operations`, `conflicts`, `workspaces`, `workflow_states`, `calculation_states`, `permission_requirements`, `action_checkpoints`, `user_preferences`. All rows carry `user_id` ownership; snapshot uniqueness is `(session_id, version)`; `sync_operations.client_op_id` and `action_checkpoints.idempotency_key` are unique.
 

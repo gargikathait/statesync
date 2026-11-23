@@ -17,3 +17,43 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: statesync
+          POSTGRES_PASSWORD: statesync_ci
+          POSTGRES_DB: statesync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U statesync -d statesync_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://statesync:statesync_ci@localhost:5432/statesync_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install uv==0.11.32
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run pytest -q --cov=statesync_api
+
+  api-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --target runtime -t statesync-api:ci apps/api
+      - run: docker build --target dev -t statesync-api-dev:ci apps/api

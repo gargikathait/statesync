@@ -1,0 +1,65 @@
+# Local backend development: PostgreSQL 16, migrations, API. The web app runs with `npm run dev`.
+# The values below are LOCAL DEVELOPMENT placeholders only; production refuses the dev secret.
+name: statesync
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: statesync
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-statesync_dev}
+      POSTGRES_DB: statesync
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U statesync -d statesync"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build:
+      context: apps/api
+      target: runtime
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql://statesync:${POSTGRES_PASSWORD:-statesync_dev}@db:5432/statesync
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: apps/api
+      target: runtime
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql://statesync:${POSTGRES_PASSWORD:-statesync_dev}@db:5432/statesync
+      SECRET_KEY: ${SECRET_KEY:-dev-only-insecure-secret-key-change-me-0123456789}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      ALLOW_MISSING_ORIGIN: ${ALLOW_MISSING_ORIGIN:-true}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  api-tests:
+    profiles: ["test"]
+    build:
+      context: apps/api
+      target: dev
+    environment:
+      TEST_DATABASE_URL: postgresql://statesync:${POSTGRES_PASSWORD:-statesync_dev}@db:5432/statesync_test
+    command: ["pytest", "-q"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

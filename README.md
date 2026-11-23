@@ -11,7 +11,8 @@ StateSync reconstructs a user's working state across devices, crashes, connectiv
 |---|---|---|
 | 0 | Requirements and architecture audit | Done (see `docs/ARCHITECTURE.md`) |
 | **1** | **Design foundation: tokens, light and dark themes, core components** | **Done** |
-| 2 | Auth, sessions, devices, backend models | Planned |
+| 2a | Backend foundation (FastAPI, PostgreSQL, auth, sessions, snapshots); plan in `docs/MILESTONE_2_PLAN.md` | In progress: Step 2.1 done |
+| 2b | Web sign-in and session screens | Planned |
 | 3 | Working-state engine: snapshots, workflow, calculations, checkpoints | Planned |
 | 4 | Offline-first sync and conflict resolution | Planned |
 | 5 | Browser extension and adapters | Planned |
@@ -46,7 +47,10 @@ npm run dev        # http://localhost:3000
 | `npm run tokens:build` | Regenerate `packages/design-tokens/tokens.css` |
 | `npm run tokens:check` | Fail if `tokens.css` is stale (also run in CI) |
 | `npm run tokens:report` | Print the contrast tables used in `docs/DESIGN_SYSTEM.md` |
-| `npm run check` | tokens check, typecheck, tests and build in one go |
+| `npm run check` | tokens check, typecheck, tests and build in one go (web only) |
+| `npm run api:up` | Start PostgreSQL 16, run migrations, start the API in Docker (needs Docker) |
+| `npm run api:test` | Run the API tests against PostgreSQL in Docker |
+| `npm run api:lint` | ruff and mypy for the API (needs uv) |
 
 No environment variables are required yet. Backend variables will be documented when the API lands (Milestone 2).
 
@@ -54,7 +58,7 @@ No environment variables are required yet. Backend variables will be documented 
 
 ```
 apps/web                 Next.js app
-apps/api                 FastAPI service (planned)
+apps/api                 FastAPI service (Step 2.1: shell, config, health)
 apps/extension           Browser extension (planned)
 packages/design-tokens   Brand tokens, themes, contrast maths
 docs/                    ARCHITECTURE.md, DESIGN_SYSTEM.md
@@ -65,6 +69,8 @@ docs/                    ARCHITECTURE.md, DESIGN_SYSTEM.md
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): approved architecture, security decisions, status of every part, limitations and risks.
 - [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md): palette roles, contrast corrections and verified ratios.
+- [`docs/MILESTONE_2_PLAN.md`](docs/MILESTONE_2_PLAN.md): approved backend plan (schema, lineage rules, security, tests).
+- [`apps/api/README.md`](apps/api/README.md): running and testing the API.
 
 ## Planned deployment
 

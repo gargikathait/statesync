@@ -27,7 +27,7 @@ Out of scope for M2a: email verification and password reset (no mail infrastruct
 
 ## 2. Architecture
 
-A modular monolith: one FastAPI app, domain modules, no extra services. Layers: router, then service, then models. Routers are thin. Services own business rules and take `user_id` in every function; there is no fetch-by-id without an owner. Each request uses one database transaction (unit of work): commit on success, roll back on any error.
+A modular monolith: one FastAPI app, domain modules, no extra services. Layers: router, then service, then models. Routers are thin. Services own business rules and take `user_id` in every function; there is no fetch-by-id without an owner. Each request gets one session; services commit explicitly before returning, and anything uncommitted is rolled back when the session closes (a failed request never leaves partial writes). Committing inside a `yield` dependency is avoided because its exit code can run after the response is sent.
 
 ```
 apps/api/
@@ -219,7 +219,7 @@ Tooling: pytest, pytest-cov, httpx, ruff, mypy. Results are reported as run; any
 
 | Step | Scope | Status |
 |---|---|---|
-| 2.1 | Scaffold, Docker, `/health`, `/ready`, config validation, error envelope, CI job, PostgreSQL semantics tests | In progress |
+| 2.1 | Scaffold, Docker, `/health`, `/ready`, config validation, error envelope, CI job, PostgreSQL semantics tests | **Done** (Docker files and GitHub Actions unverified; see the Step 2.1 report) |
 | 2.2 | Models, initial migration, immutability trigger | Not started |
 | 2.3 | Auth, cookies, CSRF and Origin, throttling | Not started |
 | 2.4 | Devices, revocation, isolation matrix | Not started |

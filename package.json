@@ -2,7 +2,7 @@
   "name": "statesync",
   "version": "0.1.0",
   "private": true,
-  "description": "StateSync — your browser remembers where you left off. SpectoV National Hackathon 2026, WD-01.",
+  "description": "StateSync \u2014 your browser remembers where you left off. SpectoV National Hackathon 2026, WD-01.",
   "workspaces": [
     "apps/web",
     "packages/*"
@@ -18,6 +18,11 @@
     "tokens:build": "npm run tokens:build -w @statesync/design-tokens",
     "tokens:check": "npm run tokens:check -w @statesync/design-tokens",
     "tokens:report": "npm run tokens:report -w @statesync/design-tokens",
-    "check": "npm run tokens:check && npm run typecheck && npm run test && npm run build"
+    "check": "npm run tokens:check && npm run typecheck && npm run test && npm run build",
+    "api:up": "docker compose up --build db migrate api",
+    "api:down": "docker compose down",
+    "api:migrate": "docker compose run --rm --build migrate",
+    "api:test": "docker compose --profile test run --rm --build api-tests",
+    "api:lint": "cd apps/api && uv run ruff check . && uv run ruff format --check . && uv run mypy"
   }
 }
