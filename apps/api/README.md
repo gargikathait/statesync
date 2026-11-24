@@ -49,6 +49,7 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy
 | `SECRET_KEY` | dev placeholder | Production requires 32+ random characters |
 | `COOKIE_NAME`, `COOKIE_SECURE`, `COOKIE_DOMAIN` | `statesync_session`, false, none | Production requires `__Host-` name, Secure, no domain |
 | `ALLOWED_ORIGINS` | `http://localhost:3000` | Comma separated exact origins; https only in production |
+| `ALLOWED_HOSTS` | `localhost,127.0.0.1` | Bare hostnames the API answers to (no scheme, port or wildcard). **Required in production.** `/api/v1/health` is exempt |
 | `ALLOW_MISSING_ORIGIN` | false | Development and tests only; refused in production |
 | `TRUSTED_PROXY_COUNT` | 0 | Number of trusted proxy hops for client IP (used from Step 2.3) |
 | `MAX_PAYLOAD_BYTES` | 524288 | Snapshot size cap (used from Step 2.6) |

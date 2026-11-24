@@ -41,7 +41,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url="/openapi.json" if docs else None,
     )
     app.state.settings = settings
-    app.add_middleware(RequestContextMiddleware, production=settings.is_production)
+    app.add_middleware(
+        RequestContextMiddleware,
+        production=settings.is_production,
+        allowed_hosts=settings.effective_allowed_hosts,
+    )
     register_exception_handlers(app)
     app.include_router(health.router, prefix=API_PREFIX)
     return app

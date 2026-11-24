@@ -17,6 +17,10 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 DEV_SECRET_PLACEHOLDER = "dev-only-insecure-secret-key-change-me-0123456789"  # noqa: S105
 HOST_PREFIX = "__Host-"
 _COOKIE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$"
+)
+DEFAULT_DEV_HOSTS = ("localhost", "127.0.0.1", "testserver")  # testserver: Starlette TestClient
 
 Environment = Literal["development", "test", "production"]
 
@@ -73,6 +77,9 @@ class Settings(BaseSettings):
         default_factory=lambda: ["http://localhost:3000"]
     )
     allow_missing_origin: bool = False
+    # Hostnames (no scheme, no port) this API answers to. Optional in development/test,
+    # required in production. Wildcards are not supported on purpose.
+    allowed_hosts: Annotated[list[str] | None, NoDecode] = None
     trusted_proxy_count: int = Field(default=0, ge=0, le=5)
 
     max_payload_bytes: int = Field(default=512 * 1024, ge=1024)
@@ -99,6 +106,27 @@ class Settings(BaseSettings):
     @classmethod
     def _exact_origins(cls, value: list[str]) -> list[str]:
         return [_validate_origin(origin) for origin in value]
+
+    @field_validator("allowed_hosts", mode="before")
+    @classmethod
+    def _split_hosts(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+    @field_validator("allowed_hosts", mode="after")
+    @classmethod
+    def _exact_hosts(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        cleaned = [host.lower() for host in value]
+        for host in cleaned:
+            if not _HOSTNAME_RE.fullmatch(host):
+                raise ValueError(
+                    f"Invalid host {host!r}: use a bare hostname such as api.example.com "
+                    "(no scheme, port, path or wildcard)."
+                )
+        return cleaned
 
     @field_validator("cookie_name")
     @classmethod
@@ -136,10 +164,18 @@ class Settings(BaseSettings):
                 problems.append("every ALLOWED_ORIGINS entry must be https in production")
             if self.allow_missing_origin:
                 problems.append("ALLOW_MISSING_ORIGIN must be false in production")
+            if not self.allowed_hosts:
+                problems.append(
+                    "ALLOWED_HOSTS must list the API's public host name(s) in production"
+                )
 
         if problems:
             raise ValueError("Invalid configuration: " + "; ".join(problems))
         return self
+
+    @property
+    def effective_allowed_hosts(self) -> list[str]:
+        return list(self.allowed_hosts) if self.allowed_hosts else list(DEFAULT_DEV_HOSTS)
 
     @property
     def is_production(self) -> bool:

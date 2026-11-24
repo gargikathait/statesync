@@ -106,8 +106,10 @@ def test_security_headers_are_present(client: TestClient) -> None:
 def test_production_adds_hsts_and_hides_api_docs() -> None:
     with client_for(make_settings(**PRODUCTION)) as c:
         assert "max-age" in c.get("/api/v1/health").headers["strict-transport-security"]
-        assert c.get("/docs").status_code == 404
-        assert c.get("/openapi.json").status_code == 404
+        host = {"Host": "api.statesync.example"}  # production only answers to its own host
+        assert c.get("/docs", headers=host).status_code == 404
+        assert c.get("/openapi.json", headers=host).status_code == 404
+        assert c.get("/docs").status_code == 400  # default test host is not allowed
 
 
 def test_development_serves_openapi(client: TestClient) -> None:

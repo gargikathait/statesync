@@ -139,6 +139,7 @@ The API sets exactly one cookie, the session cookie, and it is always `HttpOnly`
 - Other users' resources return `404`, never `403`.
 - `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and a restrictive CSP on API responses.
 - No CORS by default (same-origin proxy). API docs disabled in production.
+- Trusted hosts: `ALLOWED_HOSTS` lists the hostnames the API answers to (required in production, optional in development; no wildcards). A request with any other `Host` header gets `400 INVALID_HOST` before routing, and the value is neither echoed nor logged. `GET /api/v1/health` is exempt because platforms probe liveness with their own Host and it returns no data. **Unverified:** which `Host` Render's health probe and the Vercel rewrite actually send; confirm when D13 and deployment land.
 - Logs contain request id, method, path (no query string), status and duration; never payloads, passwords, tokens or cookies. Validation errors never echo submitted values.
 
 ## 7. API contract (`/api/v1`)
@@ -166,6 +167,7 @@ Error envelope: `{"error": {"code", "message", "request_id", "details"}}`.
 
 | Status | Codes |
 |---|---|
+| 400 | INVALID_HOST |
 | 401 | UNAUTHENTICATED, INVALID_CREDENTIALS |
 | 403 | CSRF_FAILED, ORIGIN_NOT_ALLOWED, DEVICE_REVOKED |
 | 404 | NOT_FOUND |

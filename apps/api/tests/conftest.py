@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -11,6 +10,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 
 from statesync_api.core.config import Settings, normalise_database_url
+from tests.helpers import is_safe_test_database_name
 
 _SETTINGS_ENV = [name.upper() for name in Settings.model_fields]
 
@@ -32,18 +32,16 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 def _ensure_database(url: str) -> None:
     parsed = make_url(url)
     name = parsed.database or ""
-    if "test" not in name.lower():
+    if not is_safe_test_database_name(name):
         pytest.fail(
             f"Refusing to run integration tests against database {name!r}: "
-            "its name must contain 'test' so real data is never touched."
+            "its name must end in '_test' so real data is never touched."
         )
     try:
         with create_engine(url).connect():
             return
     except OperationalError:
         pass
-    if not re.fullmatch(r"[A-Za-z0-9_]+", name):
-        pytest.fail(f"Unsafe test database name {name!r}.")
     admin = create_engine(parsed.set(database="postgres"), isolation_level="AUTOCOMMIT")
     try:
         with admin.connect() as connection:
