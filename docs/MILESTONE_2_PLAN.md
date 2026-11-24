@@ -1,232 +1,198 @@
 # Milestone 2 plan: backend foundation (M2a)
 
-Status: **approved with amendments** (decisions D1 to D14 and six additional requirements). Implementation proceeds one step at a time; see section 12 for the live status of each step.
+Status: **approved with amendments** (decisions D1 to D14 and amendments A1 to A6 below). Implementation proceeds one step at a time; each step is reported and reviewed.
 
-M2 is split: **M2a** (this document, backend only) and **M2b** (web authentication and session screens, later). M2a changes no UI, design tokens or accessibility checks.
+| Step | Scope | State |
+|---|---|---|
+| 2.1 | Scaffold, Docker, `/health`, `/ready`, error envelope, CI job | See repository history |
+| 2.2 | Models, initial migration, immutability trigger | Planned |
+| 2.3 | Auth, CSRF, Origin checks, throttling | Planned |
+| 2.4 | Devices, revocation, isolation matrix | Planned |
+| 2.5 | Sessions CRUD, pagination, search | Planned |
+| 2.6 | Snapshots, optimistic concurrency, idempotency, restore, schema validation | Planned |
+| 2.7 | OpenAPI export and drift check, docs, security checklist, Render and Neon notes | Planned |
 
-## 1. Approved decisions
+Scope split (D1): **M2a** is this backend. **M2b** is the web UI for authentication, workspace and session detail. No frontend, design-token or accessibility-check changes happen in M2a. The Next.js dev proxy rewrite (D13) is added only after Step 2.1 is confirmed.
+
+## 1. Decisions log
 
 | # | Decision |
 |---|---|
 | D1 | Split into M2a (backend) and M2b (frontend) |
 | D2 | Fixed snapshot envelope now; Zod and JSON Schema in M3 |
-| D3 | Snapshot payload is the canonical store for all eight categories; only `action_checkpoints` is a separate table (M3). No `workflow_states`, `calculation_states`, `permission_requirements`, `session_windows` or `session_tabs` tables. This amends ARCHITECTURE section 14 |
+| D3 | Snapshot payload is the canonical store for all eight categories; only `action_checkpoints` is a separate table (M3) |
 | D4 | Synchronous SQLAlchemy 2.0 with psycopg 3 |
-| D5 | Opaque cookie sessions, CSRF protection, same-origin proxy |
-| D6 | No PostgreSQL row-level security in M2; application-level isolation plus composite foreign keys |
-| D7 | Explicit `409 EMAIL_TAKEN` on duplicate registration. Trade-off: it reveals that an email is registered. Mitigated by rate limiting (section 6.5); documented as a known limitation |
-| D8 | Argon2id; minimum 12 characters, maximum 128, small local denylist, no composition rules |
+| D5 | Opaque cookie sessions, CSRF protection, same-origin proxy (not JWT) |
+| D6 | Application-level isolation plus composite foreign keys; no PostgreSQL RLS in M2 |
+| D7 | Duplicate registration returns an explicit 409. Trade-off: it reveals that an email is registered. Mitigated by rate limiting; documented, not hidden |
+| D8 | Argon2id; minimum 12, maximum 128 characters; small local denylist; no composition rules |
 | D9 | Database-backed account throttling |
 | D10 | Hard deletion of sessions and accounts |
 | D11 | uv, ruff, mypy |
-| D12 | `/api/v1` prefix and the error envelope in section 7 |
-| D13 | Next.js dev proxy rewrite added only after Step 2.1 and after you confirm the backend setup |
-| D14 | Integration tests use `TEST_DATABASE_URL` |
-
-Out of scope for M2a: email verification and password reset (no mail infrastructure), `/diff` (needs the M3 schema), `/sync/*` and `/conflicts` (M4), `/actions` (M3), any frontend work.
+| D12 | `/api/v1` prefix and a single error envelope |
+| D13 | Next.js proxy rewrite only after Step 2.1 is confirmed |
+| D14 | Integration tests read `TEST_DATABASE_URL` |
 
 ## 2. Architecture
 
-A modular monolith: one FastAPI app, domain modules, no extra services. Layers: router, then service, then models. Routers are thin. Services own business rules and take `user_id` in every function; there is no fetch-by-id without an owner. Each request gets one session; services commit explicitly before returning, and anything uncommitted is rolled back when the session closes (a failed request never leaves partial writes). Committing inside a `yield` dependency is avoided because its exit code can run after the response is sent.
+Modular monolith: one FastAPI app, domain modules, no extra services. Layers: router (thin) to service (business rules, transactions) to models. Every service function takes `user_id`; there is no fetch-by-id-alone.
 
 ```
 apps/api/
-  pyproject.toml  uv.lock  alembic.ini  Dockerfile  .dockerignore  .env.example
-  migrations/                      # Alembic
+  pyproject.toml  uv.lock  alembic.ini  Dockerfile  .dockerignore
+  docker/initdb/            # creates the *_test database on first volume init
+  migrations/               # Alembic (env.py, versions/)
   src/statesync_api/
-    main.py                        # create_app() factory (run with uvicorn --factory)
-    core/  config.py  db.py  errors.py  middleware.py  security.py  csrf.py  deps.py
-    modules/  auth/  devices/  sessions/  snapshots/   (router, schemas, service)
-    db/  base.py  models.py
+    main.py                 # create_app() factory (no import-time side effects)
+    core/  config.py  db.py  errors.py  logging.py  middleware.py
+    api/   health.py        # /health, /ready (root level); versioned router mounted at /api/v1
+    db/    base.py          # naming convention, DeclarativeBase; models arrive in 2.2
+    modules/                # auth, devices, sessions, snapshots (Steps 2.3 to 2.6)
   tests/  unit/  integration/  conftest.py
-docker-compose.yml                 # repo root
+docker-compose.yml  .env.example        # repository root
 ```
 
-## 3. Data model (PostgreSQL 16 or newer)
+## 3. Database schema (PostgreSQL 16)
 
-UUID primary keys, `timestamptz` in UTC, a naming convention on every constraint. Server version 15 or newer is required (composite `SET NULL (column)` actions); tests assert 16 or newer.
+UUID primary keys, `timestamptz` in UTC, explicit constraint naming convention.
 
 | Table | Columns | Constraints |
 |---|---|---|
-| `users` | id, email, email_normalized, password_hash, display_name, is_active, failed_login_count, last_failed_at, locked_until, created_at, updated_at, last_login_at | unique(email_normalized) |
-| `devices` | id, user_id, name, browser, platform, created_at, last_seen_at, revoked_at | FK user cascade; unique(user_id, id) |
-| `auth_sessions` | id, user_id, device_id?, token_hash (SHA-256), created_at, expires_at, last_used_at, revoked_at, user_agent | unique(token_hash); composite FK (user_id, device_id) to devices(user_id, id) **ON DELETE CASCADE** |
-| `auth_throttle` | scope, key_hash, window_start, count | PK(scope, key_hash, window_start) |
-| `sessions` | id, user_id, title, summary, status, head_version (default 0), created_by_device_id?, created_at, updated_at, last_active_at | unique(user_id, id); index(user_id, updated_at desc) |
+| `users` | id, email, email_normalized, password_hash, display_name, is_active, failed_login_count, locked_until, created_at, updated_at, last_login_at | unique(email_normalized) |
+| `devices` | id, user_id, name, browser, platform, created_at, last_seen_at, revoked_at | FK user cascade; **unique(id, user_id)** |
+| `auth_sessions` | id, user_id, device_id?, token_hash, created_at, expires_at, last_used_at, revoked_at, user_agent | unique(token_hash); composite FK (device_id, user_id) to devices, cascade |
+| `sessions` | id, user_id, title, summary, status, head_version, created_by_device_id?, created_at, updated_at, last_active_at | **unique(id, user_id)**; composite FK (created_by_device_id, user_id) `ON DELETE SET NULL (created_by_device_id)` |
 | `session_snapshots` | id, session_id, user_id, version, parent_version?, source_version?, device_id?, device_label, kind, schema_version, payload JSONB, payload_hash, size_bytes, tab_count, window_count, client_op_id?, client_created_at?, created_at | see below |
 
-`session_snapshots` constraints:
+Snapshot constraints:
 
 - unique(session_id, version); unique(session_id, client_op_id).
-- Composite FK (session_id, user_id) to sessions(user_id, id) **ON DELETE CASCADE**: a snapshot can never reference another user's session.
-- Composite FK (user_id, device_id) to devices(user_id, id) **ON DELETE SET NULL (device_id)**: see 3.1.
-- CHECK `version >= 1`; CHECK `(version = 1 AND parent_version IS NULL) OR parent_version = version - 1`.
-- CHECK `(kind = 'restore') = (source_version IS NOT NULL)`; CHECK `source_version < version`.
-- `device_label` copies the device name at write time, so attribution survives device removal.
-- An immutability trigger (section 3.2).
+- Composite FK (session_id, user_id) to sessions(id, user_id), cascade.
+- Composite FK (device_id, user_id) to devices(id, user_id) with `ON DELETE SET NULL (device_id)`.
+- Composite FK (session_id, parent_version) to session_snapshots(session_id, version).
+- Composite FK (session_id, source_version) to session_snapshots(session_id, version).
+- CHECK version >= 1, and `(version = 1 AND parent_version IS NULL) OR parent_version = version - 1` (history is linear).
+- CHECK `(kind = 'restore') = (source_version IS NOT NULL)` and `source_version <= parent_version`.
+- A trigger rejects any UPDATE (snapshots are immutable).
 
-### 3.1 Device foreign keys and revocation
+Not in M2: `conflicts`, `sync_operations` (M4); `action_checkpoints` (M3). Separate tables for workflow, calculations, permission requirements and tabs are dropped (D3).
 
-Plain `ON DELETE SET NULL` on a composite key `(user_id, device_id)` nulls **both** columns, which violates `user_id NOT NULL` and would block deletion. PostgreSQL 15 and later support `ON DELETE SET NULL (device_id)`, which nulls only the device column and leaves `user_id`, and so the ownership reference, intact. With the default `MATCH SIMPLE`, a NULL `device_id` means no device and is accepted, while a non-NULL `device_id` belonging to a different user is rejected. These behaviours are verified against the real server by `tests/integration/test_pg_semantics.py` (Step 2.1), not assumed.
+## 4. Amendments
 
-Revocation is **soft**: `DELETE /devices/{id}` sets `revoked_at` in one transaction together with `revoked_at` on every `auth_session` of that device. The row stays, so attribution and ownership references are untouched. Defence in depth: authentication also rejects any session whose device is revoked, so revocation takes effect immediately even if a session row were missed. A revoked device cannot register new logins or push snapshots (`403 DEVICE_REVOKED`). Hard deletion of a device happens only through account deletion cascading.
+### A1. Version lineage
 
-### 3.2 Immutability trigger
+Three distinct concepts. They are never interchangeable.
 
-A `BEFORE UPDATE` trigger on `session_snapshots` rejects every update **except** the foreign-key action that nulls `device_id` (allowed only when `NEW.device_id IS NULL` and every other column is unchanged). Without that exception the trigger would break `ON DELETE SET NULL (device_id)` and account deletion. Both behaviours are tested (Step 2.2).
-
-## 4. Snapshot version lineage
-
-| Term | Where it lives | Meaning |
+| Term | Where | Meaning |
 |---|---|---|
-| `base_version` | Request field only; **not stored** | The session head the client built on. Optimistic-concurrency precondition: must equal `sessions.head_version`, else `409 VERSION_CONFLICT`. `0` for the first snapshot |
-| `parent_version` | Stored, server-assigned | The immediate predecessor in this session's history. Always `version - 1` (NULL for version 1), enforced by a CHECK. On success it equals `base_version` |
-| `source_version` | Stored, **restore only** | The earlier version whose content was copied. Not an ancestry link: the parent of a restore is still `version - 1` |
+| `base_version` | Request field only | The session head the client believes is current. It is the optimistic-concurrency token. The push is accepted only if it equals the server's current `head_version`; otherwise 409 `VERSION_CONFLICT` with the current head. Not stored as its own column |
+| `parent_version` | Stored | The immediate predecessor in the session's linear history. For an accepted write it equals the previous head, therefore equals `base_version` and `version - 1`. Null only for version 1 |
+| `source_version` | Stored, restore only | The historical version whose payload was copied. Null for every other kind |
 
-History is one linear chain and is never rewritten.
+Restore semantics (exact):
 
-Restore (`POST /sessions/{id}/restore` with `{source_version, base_version, device_id}`):
+1. Request: `{source_version, device_id, base_version}`. `base_version` must equal the current head, same as any write.
+2. The server inserts a **new** snapshot `version = head + 1`, `parent_version = head`, `source_version = <the old version>`, `kind = 'restore'`, with the source payload copied byte-for-byte (same `payload_hash`, same `schema_version`).
+3. No existing row is modified or deleted. History stays 1..N intact; the head moves forward to N+1.
+4. Example: head is 7; restoring version 3 yields version 8 with parent 7 and source 3.
+5. Restoring a version whose payload hash equals the current head's is rejected with 422 `NOTHING_TO_RESTORE`, to avoid duplicate noise.
+6. A nonexistent or other-user `source_version` returns 404.
 
-1. Requires `base_version == head_version` (else 409, same as any push).
-2. Creates version `head + 1` with `kind = restore`, `parent_version = head`, `source_version = <requested>`.
-3. Copies `payload`, `schema_version`, counts and `payload_hash` from the source verbatim.
-4. Advances `head_version`. No existing row is updated or deleted.
-5. Restoring the current head is rejected (`422 RESTORE_SOURCE_IS_HEAD`). Restoring a restore snapshot copies that snapshot's content and records that snapshot as `source_version` (no transitive chain resolution). An unknown source returns `404`.
+### A2. Device foreign keys and revocation
 
-Merges (M4) are pushes with `kind = merge` and a fresh `base_version`; the three versions involved are recorded in the `conflicts` table, not in snapshot columns.
+Verified on PostgreSQL 16.2 (empirical test run in this environment):
 
-## 5. Snapshot envelope and schema compatibility
+- A composite FK `(device_id, user_id)` with plain `ON DELETE SET NULL` **fails** when the device is deleted, because it also tries to null `user_id` (NOT NULL). The delete is rolled back.
+- `ON DELETE SET NULL (device_id)` (column list, PostgreSQL 15 and later) works: the row keeps `user_id` and only `device_id` becomes null. This is what the schema uses. It requires PostgreSQL 15 or newer.
+- A reference to another user's device is rejected by the composite FK.
+- A null `device_id` is allowed (MATCH SIMPLE).
 
-Envelope: `{ "schema_version": <int>, "payload": { ... } }`.
+Not yet verified (the test script lacked the cascade clause): user-delete cascading through devices and snapshots. It is covered by Step 2.2 integration tests.
 
-- The server holds `SUPPORTED_SCHEMA_VERSIONS` (currently `{1}`). A push with a version outside it is rejected with `422 UNSUPPORTED_SCHEMA_VERSION` and `details: {received, supported}`, telling the client to update. Non-integer, zero and negative versions return `422 VALIDATION_ERROR`.
-- `payload` must be a JSON object. Under a supported version, its top-level keys must be among the eight categories (`ui, drafts, workflow, selection, calculation, navigation, permissions, actions`). An unknown top-level key is rejected with `422 UNKNOWN_CATEGORY` and the offending keys listed. Nothing is stored and nothing is stripped.
-- **Nothing is silently discarded.** A rejected push stores nothing, so the client's data stays in its own offline queue and can be retried after the client or server is updated. Accepted payloads are stored without removal, renaming or coercion of any field. Restores copy verbatim. Reads return the stored payload with its `schema_version` unchanged; the client decides how to migrate older versions.
-- Contents inside a category are opaque in M2 (including unknown nested fields, which are preserved). M3 adds the Zod schema and chooses strict or pass-through per field.
-- Storage note: JSONB does not preserve key order, whitespace or duplicate keys. `payload_hash` is computed over the canonical JSON (sorted keys, no insignificant whitespace) of the received value, so the hash identifies the content independent of those details.
-- Size cap (default 512 KB): `413 PAYLOAD_TOO_LARGE`.
+Policy:
 
-## 6. Authentication and security
+- `DELETE /devices/{id}` **revokes** (sets `revoked_at`) rather than deleting the row, so ownership references stay intact. Hard deletion of device rows happens only through account deletion.
+- In the same transaction, every `auth_sessions` row of that device is revoked. Its next request returns 401. If the caller revokes their own device they are logged out.
+- A revoked device cannot push snapshots (403 `DEVICE_REVOKED`).
+- Snapshots keep `device_label` so history stays readable even if a device reference is later nulled.
 
-### 6.1 Passwords
-Argon2id (argon2-cffi), rehash on login when parameters change. Minimum 12, maximum 128 characters, local denylist, no composition rules. Login performs a dummy hash for unknown emails so timing does not reveal which emails exist; error messages are generic.
+### A3. Rate limiting
 
-### 6.2 Sessions
-256-bit random opaque token, stored only as a SHA-256 hash. Idle timeout 7 days, absolute lifetime 30 days. A new token on every login, revoked on logout, all other sessions revoked on password change. Not JWT: sessions stay revocable and no token is ever visible to JavaScript.
+- The in-memory per-IP limiter is **best-effort dampening only**. It is per process: with N workers or instances the effective limit is multiplied by N, it resets on restart, and behind a proxy it sees the proxy's address unless forwarded headers are trusted from known proxies only. It is never relied on as protection.
+- **Authoritative control:** database-backed account throttling (D9). Progressive delay on failed logins, capped at 15 minutes, without hard lockout (a hard lockout would let an attacker lock a victim out). A correct password after the delay still works.
+- **Deployment-level strategy:** all production traffic enters through the Vercel proxy, so rate limits on `/api/v1/auth/*` belong at that edge (Vercel's firewall rate-limiting rules; availability and limits depend on the plan and must be verified before relying on them). Run a single API worker on Render (`WEB_CONCURRENCY=1`) so in-process counters stay coherent.
+- **Known residual risk:** password spraying across many accounts from one IP is only mitigated by the edge rule and the in-memory limiter. Documented, not hidden.
 
-### 6.3 Cookie requirements
-The API sets exactly one cookie, the session cookie, and it is always `HttpOnly`. In production:
+### A4. Cookies, CSRF and Origin
 
-- Name must start with `__Host-` (default `__Host-statesync_session`), with `Secure`, `Path=/` and **no `Domain` attribute**, `SameSite=Lax`.
-- Settings validation **refuses to start** in production if the cookie name lacks the prefix, `Secure` is off, a cookie domain is set, or origins are not exact `https` origins. Independently of environment, a `__Host-` name with `Secure` off or a domain set is rejected, because browsers would drop the cookie.
-- Development uses `statesync_session` without `Secure` (so it works on `http://localhost`).
+- Production refuses to start unless cookie settings satisfy `__Host-` rules: name prefixed `__Host-`, `Secure`, `Path=/`, no `Domain`, plus `HttpOnly` and `SameSite=Lax`.
+- No cookie is readable by JavaScript: the session cookie is HttpOnly, and the CSRF token is **not a cookie**. It is returned in a JSON body and held in memory by the client.
+- Server-side CSRF validation on POST, PUT, PATCH and DELETE: `X-CSRF-Token` must equal an HMAC bound to the session, compared in constant time. A token from another session fails.
+- Origin check on the same unsafe methods: `Origin` must be present and exactly match the configured public origin(s); `Origin: null` and missing Origin are rejected with 403 `CSRF_FAILED` in production. Development allows a configured localhost origin.
+- Local development over `http://localhost` uses an unprefixed cookie name without `Secure` (the prefix requires Secure); this is a development-only setting that production validation forbids.
 
-### 6.4 CSRF and Origin
-- **No JavaScript-readable cookie exists.** The CSRF token is `HMAC-SHA256(key derived from SECRET_KEY, auth_session_id)`, returned in the JSON body of register, login and `GET /auth/me`, held in memory by the client and sent in `X-CSRF-Token`. The server recomputes it and compares in constant time (`403 CSRF_FAILED`).
-- **Origin check on every unsafe method** (POST, PUT, PATCH, DELETE): `Origin` must exactly match an entry in `ALLOWED_ORIGINS`, else `403 ORIGIN_NOT_ALLOWED`. A request with no `Origin` is rejected unless `ALLOW_MISSING_ORIGIN` is on, which is for development and tests only and is refused in production. A present `Sec-Fetch-Site: cross-site` is also rejected.
-- Login and register have no session yet, so they rely on the Origin check plus a required `Content-Type: application/json` (`415` otherwise), which blocks plain HTML form posts.
-- To verify at deployment (D13): that the proxy rewrite preserves the `Origin` header.
+### A5. Snapshot schema compatibility
 
-### 6.5 Throttling and rate limiting
-- **Account throttle (authoritative, database-backed):** `users.failed_login_count` and `locked_until`. After 5 consecutive failures the delay grows exponentially up to 15 minutes; success resets it. Trade-off: an attacker can delay a victim's login for up to 15 minutes; this is accepted and documented.
-- **Per-IP throttle (authoritative, database-backed):** the `auth_throttle` table holds fixed-window counters (keyed by a keyed hash of the client IP) for login and register, shared by every worker and instance without Redis. Old windows are purged opportunistically.
-- **In-memory limiter: not production-grade protection and not relied upon.** Each worker process keeps its own counters, so N workers allow N times the limit, counters reset on restart or redeploy, and it cannot see other instances. If used at all it is a cheap burst pre-filter in front of the database counters.
-- **Client IP:** taken from `X-Forwarded-For` only through a configured `TRUSTED_PROXY_COUNT` (the Nth entry from the right; never the leftmost, which clients can forge). Default 0 means the socket peer. Behind the Vercel rewrite to Render all requests would otherwise appear to come from the proxy, making per-IP limits shared and ineffective, so the correct hop count must be verified at deployment. The per-account throttle does not depend on IP.
-- **Deployment-level strategy (defence in depth):** Vercel WAF rate limiting on `/api/v1/auth/*`. Vercel's documentation lists it as available on all plans, with one rate-limit rule on Hobby; a recent community report says enabling 429 enforcement on Hobby prompted a Pro upgrade, so confirm in your dashboard. Render offers no built-in WAF as far as we know, so a Cloudflare layer would require a custom domain. Neither is required for correctness; the database-backed limits are the baseline.
+- `schema_version` is validated against an explicit supported range (initially 1 only). Outside the range the request is rejected with 422 `UNSUPPORTED_SCHEMA_VERSION`, with `details: {received, supported_min, supported_max}`. **Nothing is stored, truncated or downgraded.**
+- For a supported version, the allowed top-level categories are exactly the eight. Unknown categories are **rejected** with 422 `UNKNOWN_CATEGORIES` (listing them), never silently dropped. New categories require a new `schema_version`.
+- The server stores the validated payload unmodified and returns it unfiltered on read. Nested contents stay opaque until M3.
+- Client contract: on either error the client must keep the pending operation (offline queue, M4) and show an "update required" state. Data is never discarded because the server is older than the client.
+- Stored snapshots keep the `schema_version` they were written with; older versions are migrated on read by the client (M3).
+- Hardening: duplicate JSON keys are rejected with 422 `DUPLICATE_JSON_KEY` (a standard parser would silently keep the last one), and `\u0000` in strings is rejected (PostgreSQL JSONB cannot store it). JSONB normalises key order and whitespace; payload hashes are computed over a canonical form.
+- A `GET /api/v1/meta` endpoint will expose the supported schema range and payload size limit.
 
-### 6.6 Isolation and hygiene
-- Every query is scoped by `user_id`; composite foreign keys enforce ownership in the database.
-- Other users' resources return `404`, never `403`.
-- `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and a restrictive CSP on API responses.
-- No CORS by default (same-origin proxy). API docs disabled in production.
-- Logs contain request id, method, path (no query string), status and duration; never payloads, passwords, tokens or cookies. Validation errors never echo submitted values.
-
-## 7. API contract (`/api/v1`)
-
-| Endpoint | Purpose | Success | Notable errors |
-|---|---|---|---|
-| `POST /auth/register` | `{email, password, display_name?}` | 201 `{user, csrf_token}` + cookie | 409 EMAIL_TAKEN, 422, 429 |
-| `POST /auth/login` | `{email, password}` | 200 `{user, csrf_token}` + cookie | 401 INVALID_CREDENTIALS, 429 |
-| `POST /auth/logout` | revoke current session | 204 | |
-| `GET /auth/me` | session check, refresh CSRF token | 200 | 401 |
-| `POST /auth/change-password` | revokes other sessions | 204 | 401, 422 |
-| `DELETE /me` | `{password}`, hard delete everything | 204 | 401 |
-| `POST/GET /devices`, `PATCH/DELETE /devices/{id}` | register, list, rename, **revoke** | 201/200/204 | 404 |
-| `POST/GET /sessions`, `GET/PATCH/DELETE /sessions/{id}` | CRUD; list has `limit`, `cursor`, `q`, `status` | 201/200/204 | 404 |
-| `POST /sessions/{id}/snapshots` | `{device_id, base_version, schema_version, payload, client_op_id?, client_created_at?, kind?}` | 201 | 409 VERSION_CONFLICT (with `current_head`), 413, 422, 403 DEVICE_REVOKED |
-| `GET /sessions/{id}/snapshots` | metadata list, `after_version`, no payloads | 200 | |
-| `GET /sessions/{id}/snapshots/{version}`, `/head` | full snapshot | 200 | 404 |
-| `POST /sessions/{id}/restore` | `{source_version, base_version, device_id}` | 201 | 404, 409, 422 RESTORE_SOURCE_IS_HEAD |
-| `GET /health` | liveness, no database | 200 | |
-| `GET /ready` | readiness, checks the database | 200 | 503 NOT_READY |
-
-Idempotency: the same `client_op_id` with the same `payload_hash` returns the original snapshot (200, `Idempotent-Replayed: true`); the same id with a different payload returns `409 IDEMPOTENCY_KEY_REUSED`.
-
-Error envelope: `{"error": {"code", "message", "request_id", "details"}}`.
-
-| Status | Codes |
-|---|---|
-| 401 | UNAUTHENTICATED, INVALID_CREDENTIALS |
-| 403 | CSRF_FAILED, ORIGIN_NOT_ALLOWED, DEVICE_REVOKED |
-| 404 | NOT_FOUND |
-| 405 | METHOD_NOT_ALLOWED |
-| 409 | VERSION_CONFLICT, EMAIL_TAKEN, IDEMPOTENCY_KEY_REUSED |
-| 413 | PAYLOAD_TOO_LARGE |
-| 415 | UNSUPPORTED_MEDIA_TYPE |
-| 422 | VALIDATION_ERROR, UNSUPPORTED_SCHEMA_VERSION, UNKNOWN_CATEGORY, RESTORE_SOURCE_IS_HEAD |
-| 429 | RATE_LIMITED (with `Retry-After`) |
-| 500 | INTERNAL_ERROR (no internals exposed) |
-| 503 | NOT_READY |
-
-The OpenAPI document is exported to `openapi.json` with a CI drift check (Step 2.7), ready for TypeScript type generation.
-
-## 8. Alembic strategy
-
-Autogenerate then hand-review; migrations are never edited after merge; one head. Migrations run as a separate step (compose `migrate` service; Render pre-deploy command), using the direct (non-pooled) connection string (`DATABASE_URL_DIRECT`, falling back to `DATABASE_URL`). Tests build the schema from migrations, never `create_all`. CI: upgrade on an empty database, `alembic check` for drift, downgrade and upgrade round trip.
-
-## 9. Testing plan (real PostgreSQL)
-
-Unit tests need no database. Integration tests require `TEST_DATABASE_URL`, **fail loudly** if it is missing (no silent skips), and refuse to run against a database whose name does not contain `test`. Isolation per test by rolled-back savepoint; concurrency tests use separate committed connections and clean up.
+### A6. Tests added
 
 | Area | Cases |
 |---|---|
-| Server semantics (2.1) | PostgreSQL 16 or newer; plain composite `SET NULL` fails; `SET NULL (device_id)` preserves `user_id`; cross-user device reference rejected; NULL device allowed; composite cascade and mismatch rejection for snapshots |
-| Config and cookies (2.1, 2.3) | Production refuses weak secret, missing `__Host-`, Secure off, cookie domain, non-https or wildcard origins, `ALLOW_MISSING_ORIGIN`; every `Set-Cookie` has `HttpOnly`; exactly one cookie |
-| CSRF and Origin (2.3) | Missing and wrong token, correct token, wrong Origin, missing Origin, `Sec-Fetch-Site: cross-site`, non-JSON login; safe methods unaffected |
-| Auth (2.3) | Generic login errors, rehash, expiry, revocation, logout, password change revokes others |
-| Throttling (2.3) | Account delay and reset; per-IP window; **limit holds across two separate app instances sharing one database** (the property an in-memory limiter cannot give); trusted-proxy IP selection and spoof resistance |
-| Devices (2.4) | Revocation sets `revoked_at` and revokes all of that device's sessions atomically; revoked device rejected on login and push; hard-deleting a device keeps `user_id` and payload intact; account deletion works with the trigger |
-| Isolation (2.4 to 2.6) | Two-user matrix over every endpoint (404s); raw SQL cross-user inserts rejected |
-| Lineage (2.6) | Linear versions; `parent_version = version - 1`; restore adds a row, leaves all earlier rows unchanged, copies payload and hash, sets `source_version`; restore of head rejected; restore with stale base returns 409; restore of a restore; unknown source returns 404; DB CHECKs reject invalid rows inserted by SQL |
-| Schema compatibility (2.6) | Unsupported future version returns 422 with supported list and stores nothing; zero, negative, non-integer versions; unknown category returns 422 listing keys and stores nothing; nested unknown fields, large integers and unicode round-trip exactly; restore never alters payload |
-| Snapshots (2.6) | Stale base returns 409 with head; **20 parallel pushes on one base give exactly one 201 and nineteen 409s, contiguous versions**; idempotent replay and key reuse; immutability trigger; size cap |
-| Deletion and migrations (2.2, 2.4) | Account delete cascades through every table; upgrade, downgrade and upgrade round trip; no model drift |
+| Lineage | head 7 restore of 3 gives version 8, parent 7, source 3; all earlier rows byte-identical before and after; contiguous versions; stale `base_version` returns 409; `NOTHING_TO_RESTORE`; CHECK constraints reject bad parent/source via raw SQL |
+| Devices | composite FK rejects cross-user device; `SET NULL (device_id)` preserves `user_id` on raw device delete; revoke kills that device's auth sessions only; revoked device cannot push; other user cannot revoke |
+| Rate limiting | account throttle across separate connections; progressive delay and cap; correct password after delay works; limiter documented as per-process |
+| Cookies and CSRF | `__Host-` attributes in production config; production startup refuses invalid cookie config; no JS-readable cookie; missing, wrong, other-session and valid CSRF tokens; missing, `null`, foreign and valid Origin |
+| Schema | unsupported future and too-old versions rejected with nothing stored; unknown category rejected; duplicate key and NUL rejected; stored payload equals sent payload |
 
-Tooling: pytest, pytest-cov, httpx, ruff, mypy. Results are reported as run; anything not run (Docker, GitHub Actions) is stated as unverified.
+## 5. API contract (`/api/v1`)
 
-## 10. Docker and CI
+| Endpoint | Purpose |
+|---|---|
+| `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/change-password`, `DELETE /me` | Account and session handling |
+| `POST/GET /devices`, `PATCH/DELETE /devices/{id}` | Register, list, rename, revoke |
+| `POST/GET /sessions`, `GET/PATCH/DELETE /sessions/{id}` | CRUD; list supports `limit`, `cursor`, `q`, `status` |
+| `POST /sessions/{id}/snapshots` | `{device_id, base_version, schema_version, payload, client_op_id?, client_created_at?, kind?}` |
+| `GET /sessions/{id}/snapshots`, `/snapshots/{version}`, `/snapshots/head` | History and retrieval |
+| `POST /sessions/{id}/restore` | `{source_version, device_id, base_version}` (A1) |
+| `GET /meta` | Supported schema range and limits |
+| `GET /health`, `GET /ready` | Liveness; readiness with database check (root level, not versioned) |
 
-`docker-compose.yml`: `db` (postgres:16-alpine, healthcheck, volume, bound to 127.0.0.1), `migrate` (runs `alembic upgrade head` after the database is healthy), `api` (starts after migrate succeeds), and an `api-tests` service under the `test` profile. The Dockerfile is multi-stage, slim, non-root, with a healthcheck. Dev defaults for the database password and secret are placeholders for local use only; production settings validation rejects the placeholder secret. CI gets an `api` job (PostgreSQL 16 service container, lint, types, migrations, tests) and an image-build check.
+Error envelope: `{"error": {"code", "message", "request_id", "details"}}`. Codes: UNAUTHENTICATED (401), CSRF_FAILED and DEVICE_REVOKED (403), NOT_FOUND (404), VERSION_CONFLICT, EMAIL_TAKEN, IDEMPOTENCY_KEY_REUSED (409), PAYLOAD_TOO_LARGE (413), VALIDATION_ERROR, UNSUPPORTED_SCHEMA_VERSION, UNKNOWN_CATEGORIES, DUPLICATE_JSON_KEY, NOTHING_TO_RESTORE (422), RATE_LIMITED (429), INTERNAL_ERROR (500), SERVICE_UNAVAILABLE (503). Deferred: `/diff` (M3), `/sync/*` and `/conflicts` (M4), `/actions` (M3).
 
-## 11. How this supports later milestones
+## 6. Authentication and isolation
 
-- **Offline sync (M4):** `base_version` gives optimistic concurrency, `client_op_id` makes queued operations replayable, `client_created_at` is kept for display, and pull uses `after_version` plus the `(user_id, updated_at)` index.
-- **Three-way merge (M4):** immutable snapshots, a linear `parent_version` chain and `payload_hash` let the client fetch base, local and remote exactly; the 409 returns the remote head; `kind` already allows `merge` and `conflict_resolution`.
-- **Cross-device recovery:** devices, per-snapshot attribution, `last_seen_at` and soft revocation. Permission grants are never stored server-side (ARCHITECTURE 12.2).
+Argon2id with rehash-on-login and a dummy hash for unknown emails. Opaque 256-bit session token stored only as a SHA-256 hash; idle timeout 7 days, absolute 30. Isolation in three layers: every query scoped by `user_id`; composite foreign keys; a two-user test matrix over every endpoint where another user's resources return 404, never 403. Authenticated responses are `Cache-Control: no-store`. No CORS by default. Logs never contain payloads, passwords or query strings. Not in M2: email verification and password reset (no mail infrastructure).
+
+## 7. Migrations
+
+Typed SQLAlchemy 2.0 models; Alembic autogenerate with hand review; applied migrations are never edited; single head. Migrations run as a separate step (compose `migrate` service locally, pre-deploy command on Render) using the **direct** Neon connection (`MIGRATION_DATABASE_URL`), not the pooled one. CI: upgrade on an empty database, drift check, downgrade and upgrade round trip. Tests build the schema from migrations, never `create_all`.
+
+## 8. Testing strategy
+
+- Unit tests run without a database. Integration tests use a real PostgreSQL through `TEST_DATABASE_URL` and **fail loudly** (never skip) when it is unset.
+- Safety guard: the test database name must end in `_test`, because the suite drops and recreates the schema.
+- Sources of PostgreSQL: Docker Compose locally; a `postgres:16` service container in GitHub Actions; in the author's sandbox a pip-installed PostgreSQL 16.2, used only for development verification and not a project dependency.
+- Concurrency tests (for example 20 parallel pushes with one `base_version` give exactly one 201 and nineteen 409) use separate committed connections and clean up after themselves.
+- Reported honestly: what ran, what did not (Docker, GitHub Actions), and real coverage figures.
+
+## 9. Local development with Docker
+
+`docker-compose.yml` services: `db` (postgres:16, healthcheck, volume, bound to 127.0.0.1), `migrate` (one-shot `alembic upgrade head`), `api` (uvicorn with reload, starts after migrate succeeds). Multi-stage non-root Dockerfile with a healthcheck. `.env.example` has placeholders only; no secrets are committed. The init script creates `statesync_test` on first volume initialisation (reset with `docker compose down -v`).
+
+## 10. How this supports later milestones
+
+- **Offline sync (M4):** `base_version` gives optimistic concurrency; `client_op_id` makes queued operations replay-safe; `client_created_at` is kept for display; pull builds on `after_version` listings and the `(user_id, updated_at)` index.
+- **Three-way merge (M4):** immutable snapshots with a linear `parent_version` chain and `payload_hash` let the client fetch base, local and remote exactly; 409 returns the remote head; `kind` includes `merge` and `conflict_resolution`; the `conflicts` table will reference snapshot ids.
+- **Cross-device recovery:** devices, per-snapshot attribution, `last_seen_at` and revocation are in place. Permission grants are never stored server-side.
 - **Actions (M3):** `action_checkpoints` with unique(user_id, idempotency_key) slots in without touching snapshots.
 
-## 12. Steps and status
+## 11. Assumptions and known limitations
 
-| Step | Scope | Status |
-|---|---|---|
-| 2.1 | Scaffold, Docker, `/health`, `/ready`, config validation, error envelope, CI job, PostgreSQL semantics tests | **Done** (Docker files and GitHub Actions unverified; see the Step 2.1 report) |
-| 2.2 | Models, initial migration, immutability trigger | Not started |
-| 2.3 | Auth, cookies, CSRF and Origin, throttling | Not started |
-| 2.4 | Devices, revocation, isolation matrix | Not started |
-| 2.5 | Sessions CRUD, pagination, search | Not started |
-| 2.6 | Snapshots, lineage, schema compatibility, concurrency | Not started |
-| 2.7 | OpenAPI export and drift check, docs, security checklist, Render and Neon notes | Not started |
-
-## 13. Assumptions and limitations
-
-PostgreSQL 16 locally and in CI (Neon may run a newer version); both pooled and direct Neon connection strings are available; free-tier Render and Neon can be slow on the first request after idle; no email verification or password reset; UUIDv4 identifiers; snapshot versions are per-session integers; duplicate-email responses reveal registration (D7).
+PostgreSQL 15 or newer is required (column-list `SET NULL`); the target is 16. Render's free tier can sleep and Neon can auto-suspend, so the first request after idle may be slow. No email verification or password reset in M2. IDs are UUIDv4; snapshot versions are per-session integers. This is still pre-1 December work; see the compliance note in `ARCHITECTURE.md`.
